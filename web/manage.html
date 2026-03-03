@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Irongate — Manage Passkeys</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 600px; margin: 40px auto; padding: 0 20px;
+    color: #1a1a1a; background: #fafafa;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #666; margin-bottom: 2rem; }
+  .nav { margin-bottom: 2rem; }
+  .nav a { color: #2563eb; text-decoration: none; margin-right: 1rem; }
+  .nav a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+  th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
+  th { font-weight: 600; color: #6b7280; font-size: 0.875rem; text-transform: uppercase; }
+  .btn-delete {
+    padding: 0.25rem 0.75rem; border: 1px solid #fca5a5; border-radius: 4px;
+    background: white; color: #dc2626; cursor: pointer; font-size: 0.875rem;
+  }
+  .btn-delete:hover { background: #fef2f2; }
+  .btn-delete:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-add {
+    display: inline-block; padding: 0.5rem 1rem; border: none; border-radius: 4px;
+    font-size: 0.875rem; font-weight: 600; cursor: pointer;
+    background: #2563eb; color: white; text-decoration: none;
+  }
+  .btn-add:hover { background: #1d4ed8; }
+  .btn-logout {
+    display: inline-block; padding: 0.5rem 1rem; border: 1px solid #d1d5db;
+    border-radius: 4px; font-size: 0.875rem; cursor: pointer;
+    background: white; color: #374151; text-decoration: none;
+  }
+  .btn-logout:hover { background: #f3f4f6; }
+  .actions { display: flex; gap: 0.5rem; margin-bottom: 2rem; }
+  .status { margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none; }
+  .status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .status.success { display: block; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .empty { color: #9ca3af; font-style: italic; padding: 2rem; text-align: center; }
+  .lock { font-size: 2rem; margin-bottom: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="lock">&#x1f512;</div>
+<h1>Irongate — Manage Passkeys</h1>
+<p class="subtitle">View, add, or remove passkeys for this application.</p>
+
+<div class="nav">
+  <a href="/">Back to Application</a>
+</div>
+
+<div class="actions">
+  <a id="add-btn" class="btn-add" href="#">Add Passkey</a>
+  <button id="logout-btn" class="btn-logout">Logout</button>
+</div>
+
+<div id="credentials">
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody id="cred-list"></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">No passkeys enrolled.</div>
+</div>
+
+<div id="status" class="status"></div>
+
+<script>
+(function() {
+  const path = location.pathname;
+  const prefixPath = path.replace(/\/manage\/?$/, "");
+  const credList = document.getElementById("cred-list");
+  const emptyEl = document.getElementById("empty");
+  const statusEl = document.getElementById("status");
+
+  document.getElementById("add-btn").href = prefixPath + "/enroll";
+
+  function showStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = "status " + type;
+  }
+
+  function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  async function loadCredentials() {
+    try {
+      const resp = await fetch(prefixPath + "/manage/credentials", {
+        credentials: "same-origin",
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const creds = await resp.json();
+
+      credList.innerHTML = "";
+      if (!creds || creds.length === 0) {
+        emptyEl.style.display = "block";
+        return;
+      }
+      emptyEl.style.display = "none";
+
+      for (const cred of creds) {
+        const tr = document.createElement("tr");
+
+        const tdName = document.createElement("td");
+        tdName.textContent = cred.name;
+        tr.appendChild(tdName);
+
+        const tdDate = document.createElement("td");
+        tdDate.textContent = formatDate(cred.created_at);
+        tr.appendChild(tdDate);
+
+        const tdAction = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.className = "btn-delete";
+        btn.textContent = "Remove";
+        btn.disabled = creds.length <= 1;
+        if (creds.length <= 1) {
+          btn.title = "Cannot remove the last passkey";
+        }
+        btn.addEventListener("click", () => deleteCredential(cred.id, cred.name));
+        tdAction.appendChild(btn);
+        tr.appendChild(tdAction);
+
+        credList.appendChild(tr);
+      }
+    } catch (err) {
+      showStatus("Failed to load credentials: " + err.message, "error");
+    }
+  }
+
+  async function deleteCredential(id, name) {
+    if (!confirm("Remove passkey \"" + name + "\"? This cannot be undone.")) return;
+    try {
+      const resp = await fetch(prefixPath + "/manage/credentials?id=" + encodeURIComponent(id), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      showStatus("Passkey removed.", "success");
+      loadCredentials();
+    } catch (err) {
+      showStatus("Failed to remove: " + err.message, "error");
+    }
+  }
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    try {
+      await fetch(prefixPath + "/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      location.href = prefixPath + "/login";
+    } catch (err) {
+      showStatus("Logout failed: " + err.message, "error");
+    }
+  });
+
+  loadCredentials();
+})();
+</script>
+</body>
+</html>

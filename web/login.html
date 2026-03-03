@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Irongate — Login</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px; margin: 80px auto; padding: 0 20px;
+    color: #1a1a1a; background: #fafafa;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #666; margin-bottom: 2rem; }
+  button {
+    width: 100%; padding: 0.75rem; border: none; border-radius: 4px;
+    font-size: 1rem; font-weight: 600; cursor: pointer;
+    background: #2563eb; color: white; transition: background 0.2s;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #93c5fd; cursor: not-allowed; }
+  .status { margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none; }
+  .status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .status.success { display: block; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .status.info { display: block; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+  .lock { font-size: 2rem; margin-bottom: 0.5rem; }
+  .not-enrolled {
+    display: none; margin-top: 1rem; padding: 0.75rem;
+    background: #fffbeb; color: #92400e; border: 1px solid #fde68a;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="lock">&#x1f512;</div>
+<h1>Irongate</h1>
+<p class="subtitle">Authenticate with your passkey to continue.</p>
+
+<button id="login-btn">Sign in with Passkey</button>
+
+<div id="not-enrolled" class="not-enrolled">
+  <strong>No passkeys enrolled.</strong><br>
+  This application has not been set up yet. Please use the enrollment link provided when the container was launched.
+</div>
+
+<div id="status" class="status"></div>
+
+<script>
+(function() {
+  const path = location.pathname;
+  const prefixPath = path.replace(/\/login\/?$/, "");
+
+  // Extract the original URL from query params.
+  const params = new URLSearchParams(location.search);
+  const orig = params.get("orig") || "/";
+
+  const btn = document.getElementById("login-btn");
+  const statusEl = document.getElementById("status");
+
+  function showStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = "status " + type;
+  }
+
+  function b64urlEncode(buf) {
+    const bytes = new Uint8Array(buf);
+    let str = "";
+    for (const b of bytes) str += String.fromCharCode(b);
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+
+  function b64urlDecode(str) {
+    str = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (str.length % 4) str += "=";
+    const bin = atob(str);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  async function doLogin() {
+    btn.disabled = true;
+    btn.textContent = "Authenticating...";
+    statusEl.className = "status";
+
+    try {
+      // Step 1: Get assertion options.
+      const beginResp = await fetch(prefixPath + "/login/begin", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+
+      if (beginResp.status === 412) {
+        // No credentials enrolled.
+        document.getElementById("not-enrolled").style.display = "block";
+        btn.disabled = true;
+        btn.textContent = "No passkeys enrolled";
+        return;
+      }
+
+      if (!beginResp.ok) throw new Error(await beginResp.text());
+      const options = await beginResp.json();
+
+      // Decode binary fields.
+      options.publicKey.challenge = b64urlDecode(options.publicKey.challenge);
+      if (options.publicKey.allowCredentials) {
+        for (const c of options.publicKey.allowCredentials) {
+          c.id = b64urlDecode(c.id);
+        }
+      }
+
+      // Step 2: Get assertion from authenticator.
+      const assertion = await navigator.credentials.get(options);
+
+      // Step 3: Send assertion to server.
+      const assertionJSON = {
+        id: assertion.id,
+        rawId: b64urlEncode(assertion.rawId),
+        type: assertion.type,
+        response: {
+          authenticatorData: b64urlEncode(assertion.response.authenticatorData),
+          clientDataJSON: b64urlEncode(assertion.response.clientDataJSON),
+          signature: b64urlEncode(assertion.response.signature),
+        },
+      };
+
+      if (assertion.response.userHandle) {
+        assertionJSON.response.userHandle = b64urlEncode(assertion.response.userHandle);
+      }
+
+      if (assertion.authenticatorAttachment) {
+        assertionJSON.authenticatorAttachment = assertion.authenticatorAttachment;
+      }
+
+      const finishResp = await fetch(prefixPath + "/login/finish", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(assertionJSON),
+      });
+
+      if (!finishResp.ok) throw new Error(await finishResp.text());
+
+      showStatus("Authenticated! Redirecting...", "success");
+      setTimeout(() => { location.href = orig; }, 500);
+
+    } catch (err) {
+      console.error("Login error:", err);
+      showStatus("Authentication failed: " + err.message, "error");
+      btn.disabled = false;
+      btn.textContent = "Sign in with Passkey";
+    }
+  }
+
+  btn.addEventListener("click", doLogin);
+
+  // Auto-trigger the login on page load (passkey prompt appears immediately).
+  // Small delay to let the page render first.
+  setTimeout(doLogin, 300);
+})();
+</script>
+</body>
+</html>

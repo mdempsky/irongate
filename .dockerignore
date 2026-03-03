@@ -1,0 +1,16 @@
+# Don't send the built binary to Docker context
+irongate
+
+# Git
+.git
+.gitignore
+
+# Editor files
+*~
+*.swp
+
+# OS files
+.DS_Store
+
+# Test artifacts
+/tmp

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Irongate — Enroll Passkey</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px; margin: 80px auto; padding: 0 20px;
+    color: #1a1a1a; background: #fafafa;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #666; margin-bottom: 2rem; }
+  label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+  input[type="text"] {
+    width: 100%; padding: 0.5rem; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 1rem; margin-bottom: 1rem;
+  }
+  button {
+    width: 100%; padding: 0.75rem; border: none; border-radius: 4px;
+    font-size: 1rem; font-weight: 600; cursor: pointer;
+    background: #2563eb; color: white; transition: background 0.2s;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #93c5fd; cursor: not-allowed; }
+  .status { margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none; }
+  .status.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .status.success { display: block; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .status.info { display: block; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+  .lock { font-size: 2rem; margin-bottom: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="lock">&#x1f512;</div>
+<h1>Irongate</h1>
+<p class="subtitle">Register a passkey to secure this application.</p>
+
+<div id="no-seed" class="status error" style="display:none">
+  <strong>No enrollment seed found.</strong><br>
+  The enrollment URL must include the seed in the fragment (e.g., <code>#your-seed-here</code>).
+  This page was opened without a seed.
+</div>
+
+<div id="has-session" class="status info" style="display:none">
+  <strong>Adding another passkey.</strong><br>
+  You are already authenticated. The new passkey will be added to your account.
+</div>
+
+<form id="enroll-form" style="display:none">
+  <label for="name">Passkey name</label>
+  <input type="text" id="name" placeholder="e.g., MacBook Pro, iPhone" autocomplete="off">
+  <button type="submit" id="enroll-btn">Register Passkey</button>
+</form>
+
+<div id="status" class="status"></div>
+
+<script>
+(function() {
+  // Determine the irongate prefix from the current URL path.
+  // The page is served at <prefix>/enroll, so strip "/enroll" to get the prefix.
+  const prefixPath = location.pathname.replace(/\/enroll\/?$/, "");
+
+  const seed = location.hash.slice(1); // Remove leading #
+  const form = document.getElementById("enroll-form");
+  const statusEl = document.getElementById("status");
+  const noSeedEl = document.getElementById("no-seed");
+  const hasSessionEl = document.getElementById("has-session");
+
+  // Check if we have a session (for adding more passkeys).
+  let hasSession = false;
+  fetch(prefixPath + "/manage/credentials", { credentials: "same-origin" })
+    .then(r => {
+      if (r.ok) {
+        hasSession = true;
+        hasSessionEl.style.display = "block";
+      }
+    })
+    .catch(() => {});
+
+  // Always show the form — server-side validation handles authorization.
+  form.style.display = "block";
+
+  if (!seed) {
+    // If no seed in URL and no active session, show an error after a
+    // brief delay (the session check fetch above is async).
+    setTimeout(() => {
+      if (!hasSession) {
+        noSeedEl.style.display = "block";
+      }
+    }, 500);
+  }
+
+  function showStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = "status " + type;
+  }
+
+  // Base64url encode/decode helpers.
+  function b64urlEncode(buf) {
+    const bytes = new Uint8Array(buf);
+    let str = "";
+    for (const b of bytes) str += String.fromCharCode(b);
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+
+  function b64urlDecode(str) {
+    str = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (str.length % 4) str += "=";
+    const bin = atob(str);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  form.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById("enroll-btn");
+    btn.disabled = true;
+    btn.textContent = "Registering...";
+    statusEl.className = "status";
+
+    try {
+      // Step 1: Get registration options from server.
+      const beginResp = await fetch(prefixPath + "/enroll/begin", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!beginResp.ok) throw new Error(await beginResp.text());
+      const options = await beginResp.json();
+
+      // Decode binary fields from base64url.
+      options.publicKey.challenge = b64urlDecode(options.publicKey.challenge);
+      options.publicKey.user.id = b64urlDecode(options.publicKey.user.id);
+      if (options.publicKey.excludeCredentials) {
+        for (const c of options.publicKey.excludeCredentials) {
+          c.id = b64urlDecode(c.id);
+        }
+      }
+
+      // Step 2: Create credential via WebAuthn API.
+      const credential = await navigator.credentials.create(options);
+
+      // Step 3: Encode the response and send to server with the seed.
+      const attestationResponse = credential.response;
+      const credentialJSON = {
+        id: credential.id,
+        rawId: b64urlEncode(credential.rawId),
+        type: credential.type,
+        response: {
+          attestationObject: b64urlEncode(attestationResponse.attestationObject),
+          clientDataJSON: b64urlEncode(attestationResponse.clientDataJSON),
+        },
+      };
+
+      // Include transports if available.
+      if (attestationResponse.getTransports) {
+        credentialJSON.response.transports = attestationResponse.getTransports();
+      }
+
+      // Include authenticatorAttachment if available.
+      if (credential.authenticatorAttachment) {
+        credentialJSON.authenticatorAttachment = credential.authenticatorAttachment;
+      }
+
+      const finishResp = await fetch(prefixPath + "/enroll/finish", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seed: seed,
+          name: document.getElementById("name").value.trim(),
+          credential: credentialJSON,
+        }),
+      });
+
+      if (!finishResp.ok) throw new Error(await finishResp.text());
+
+      showStatus("Passkey registered successfully! Redirecting...", "success");
+
+      // Clear the seed from the URL for safety.
+      history.replaceState(null, "", location.pathname);
+
+      // Redirect to the app root after a brief pause.
+      setTimeout(() => { location.href = "/"; }, 1000);
+
+    } catch (err) {
+      console.error("Enrollment error:", err);
+      showStatus("Enrollment failed: " + err.message, "error");
+      btn.disabled = false;
+      btn.textContent = "Register Passkey";
+    }
+  });
+})();
+</script>
+</body>
+</html>
