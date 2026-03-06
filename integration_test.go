@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,19 +17,26 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
+var flagHeadless = flag.Bool("headless", true, "run browser in headless mode")
+
 // TestEnrollmentFlow performs an end-to-end test of the enrollment flow, including:
 // - Starting a mock backend server
 // - Starting the irongate server with the auth handler and proxy
 // - Using Playwright to navigate to the enrollment page and complete the flow
 // - Verifying that the backend received the expected requests
 func TestEnrollmentFlow(t *testing.T) {
-	pw, err := playwright.Run()
+	pw, err := playwright.Run(&playwright.RunOptions{
+		OnlyInstallShell: *flagHeadless,
+		Browsers:         []string{"chromium"},
+	})
 	if err != nil {
 		t.Fatalf("run playwright: %v", err)
 	}
 	defer pw.Stop()
 
-	browser, err := pw.Chromium.Launch()
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(*flagHeadless),
+	})
 	if err != nil {
 		t.Fatalf("launch browser: %v", err)
 	}
