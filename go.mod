@@ -1,6 +1,6 @@
 module github.com/mdempsky/irongate
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/go-webauthn/webauthn v0.16.0

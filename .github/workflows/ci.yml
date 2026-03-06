@@ -12,6 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
       - run: go run github.com/playwright-community/playwright-go/cmd/playwright install
       - run: go test ./...
       - run: go build -o irongate .
@@ -25,6 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
       - run: |
           GOOS=linux GOARCH=amd64 go build -o irongate .
           zip irongate-linux-amd64.zip irongate
