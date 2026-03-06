@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+      - run: go test ./...
+      - run: go build -o irongate .
+
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+      - run: |
+          GOOS=linux GOARCH=amd64 go build -o irongate .
+          zip irongate-linux-amd64.zip irongate
+          GOOS=linux GOARCH=arm64 go build -o irongate .
+          zip irongate-linux-arm64.zip irongate
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            irongate-linux-amd64.zip
+            irongate-linux-arm64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
