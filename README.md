@@ -93,7 +93,7 @@ Then open `https://localhost/_ah/enroll#my-secret-seed` to register your passkey
 Irongate includes a ready-made Docker setup for [OpenCode](https://opencode.ai),
 an open-source AI coding agent with a web UI.
 
-### Dockerfile
+### example/Dockerfile
 
 ```dockerfile
 FROM golang:1.26 AS builder
@@ -114,7 +114,7 @@ CMD ["irongate", "-listen=:443", "-tls=self-signed", "-backend=127.0.0.1:4096", 
 
 ### Launch script
 
-The included `launch.sh` automates the full flow:
+The included `example/launch.sh` automates the full flow:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-..."
@@ -163,8 +163,9 @@ irongate/
 │   ├── enroll.html               Passkey registration page
 │   ├── login.html                Passkey authentication page
 │   └── manage.html               Passkey management page
-├── Dockerfile                    Multi-stage build for OpenCode demo
-└── launch.sh                     Example launch script
+├── example/
+│   ├── Dockerfile                 Multi-stage build for OpenCode demo
+│   └── launch.sh                  Example launch script
 ```
 
 ## Security properties
