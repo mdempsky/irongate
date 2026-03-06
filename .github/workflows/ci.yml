@@ -12,6 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
+      - run: go run github.com/playwright-community/playwright-go/cmd/playwright install
       - run: go test ./...
       - run: go build -o irongate .
 
